@@ -179,3 +179,14 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+#Kaggle data raw
+data/raw
+data/raw/**
+
+#Kaggle data processed
+data/processed/
+data/processed/**
+
+#Keep README in data
+!data/README.md
