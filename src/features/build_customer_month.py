@@ -49,7 +49,7 @@ def ensure_account_id(
     Else if df has subscription_id -> map subscription_id -> account_id via subscriptions.
     Returns (df_with_account_id, account_id_col_name).
     """
-    # Determine subscription mapping columns in subs
+    #Determine subscription mapping columns in subs
     subs_sub_id = pick_col(subs, ["subscription_id"])
     subs_acc_id = pick_col(subs, ["account_id", "customer_id", "user_id", "account"])
 
@@ -126,17 +126,17 @@ def expand_subscriptions_to_months(subs: pd.DataFrame) -> pd.DataFrame:
 
 
 def main() -> None:
-    # Load
+    #Load
     accounts = pd.read_parquet(PQ_DIR / "ravenstack_accounts.parquet")
     churn_events = pd.read_parquet(PQ_DIR / "ravenstack_churn_events.parquet")
     usage = pd.read_parquet(PQ_DIR / "ravenstack_feature_usage.parquet")
     subs = pd.read_parquet(PQ_DIR / "ravenstack_subscriptions.parquet")
     tickets = pd.read_parquet(PQ_DIR / "ravenstack_support_tickets.parquet")
 
-    # Expand subscriptions to account-month rows (also gives plan/price if present)
+    #Expand subscriptions to account-month rows (also gives plan/price if present)
     subs_month = expand_subscriptions_to_months(subs)
 
-    # --- Ensure account_id exists everywhere (map from subscription_id if needed)
+    #Ensure account_id exists everywhere (map from subscription_id if needed)
     churn_date_col = pick_col(churn_events, ["churn_date", "date", "event_date", "timestamp", "created_at"])
     usage_date_col = pick_col(usage, ["usage_date", "date", "event_date", "used_at", "timestamp", "created_at"])
     tickets_date_col = pick_col(tickets, ["submitted_at", "created_at", "date", "opened_at", "timestamp"])
@@ -146,12 +146,12 @@ def main() -> None:
     usage_m, usage_acc_col = ensure_account_id(usage, subs, df_name="feature_usage")
     tickets_m, tickets_acc_col = ensure_account_id(tickets, subs, df_name="support_tickets")
 
-    # Add month columns
+    #Add month columns
     churn_events_m = add_month(churn_events_m, churn_date_col)
     usage_m = add_month(usage_m, usage_date_col)
     tickets_m = add_month(tickets_m, tickets_date_col)
 
-    # Skeleton months: union of subscription-months + activity months + churn months
+    #Skeleton months: union of subscription-months + activity months + churn months
     skeleton = pd.concat(
         [
             subs_month[["account_id", "month"]],
@@ -162,7 +162,7 @@ def main() -> None:
         ignore_index=True,
     ).dropna().drop_duplicates()
 
-    # --- Aggregate usage numeric cols
+    #Aggregate usage numeric cols
     usage_exclude = {usage_acc_col, "month", usage_date_col, "usage_id", "subscription_id", "feature_name"}
     usage_num_cols = [c for c in usage_m.columns if c not in usage_exclude and pd.api.types.is_numeric_dtype(usage_m[c])]
 
@@ -174,11 +174,11 @@ def main() -> None:
 
     usage_agg = usage_agg.rename(columns={usage_acc_col: "account_id"})
 
-    # --- Aggregate tickets
+    #Aggregate tickets
     ticket_agg = tickets_m.groupby([tickets_acc_col, "month"], as_index=False).size().rename(columns={"size": "ticket_count"})
     ticket_agg = ticket_agg.rename(columns={tickets_acc_col: "account_id"})
 
-    # Optional numeric ticket metrics (means)
+    #Optional numeric ticket metrics (means)
     ticket_exclude = {tickets_acc_col, "month", tickets_date_col, "ticket_id", "subscription_id"}
     ticket_num_cols = [c for c in tickets_m.columns if c not in ticket_exclude and pd.api.types.is_numeric_dtype(tickets_m[c])]
     if ticket_num_cols:
@@ -186,7 +186,7 @@ def main() -> None:
         extra = extra.rename(columns={tickets_acc_col: "account_id"})
         ticket_agg = ticket_agg.merge(extra, on=["account_id", "month"], how="left")
 
-    # --- Churn flags
+    #Churn flags
     churn_flag = (
         churn_events_m.groupby([churn_acc_col, "month"], as_index=False)
         .size()
@@ -195,32 +195,32 @@ def main() -> None:
     churn_flag["churn_in_month"] = 1
     churn_flag = churn_flag[[churn_acc_col, "month", "churn_in_month"]].rename(columns={churn_acc_col: "account_id"})
 
-    # --- Assemble final panel
+    #Assemble final panel
     panel = skeleton.merge(subs_month.drop_duplicates(["account_id", "month"]), on=["account_id", "month"], how="left")
     panel = panel.merge(usage_agg, on=["account_id", "month"], how="left")
     panel = panel.merge(ticket_agg, on=["account_id", "month"], how="left")
     panel = panel.merge(churn_flag, on=["account_id", "month"], how="left")
 
-    # Fill core flags
+    #Fill core flags
     panel["is_subscribed"] = panel.get("is_subscribed", 0).fillna(0).astype(int)
     panel["churn_in_month"] = panel["churn_in_month"].fillna(0).astype(int)
 
-    # churn_next_month label
+    #churn_next_month label
     panel = panel.sort_values(["account_id", "month"])
     panel["churn_next_month"] = panel.groupby("account_id")["churn_in_month"].shift(-1).fillna(0).astype(int)
 
-    # Fill numeric NaNs with 0 for engineered metrics
+    #Fill numeric NaNs with 0 for engineered metrics
     for c in panel.columns:
         if c in {"account_id", "month", "plan"}:
             continue
         if pd.api.types.is_numeric_dtype(panel[c]):
             panel[c] = panel[c].fillna(0)
 
-    # Tenure
+    #Tenure
     first_month = panel.groupby("account_id")["month"].transform("min")
     panel["tenure_months"] = ((panel["month"].dt.to_period("M") - first_month.dt.to_period("M")).apply(lambda x: x.n)).astype(int)
 
-    # Write parquet
+    #Write parquet
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     panel.to_parquet(OUT_PATH, index=False)
 
