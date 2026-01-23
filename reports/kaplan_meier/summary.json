@@ -1,0 +1,9 @@
+{
+  "n_accounts": 500,
+  "event_rate": 0.704,
+  "median_lifetime_months": 24.0,
+  "survival_at_6_months": 1.0,
+  "survival_at_12_months": 1.0,
+  "survival_at_22_months": 0.9840000000000001,
+  "survival_at_24_months": 0.2722249348927508
+}
