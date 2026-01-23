@@ -11,7 +11,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss
 
 DATA_PATH = "data/processed/hazard_dataset.parquet"
-REPORT_DIR = Path("reports/hazard_logreg")
+REPORT_DIR = Path("reports/hazard_logreg_pricing")
 
 def time_split(df: pd.DataFrame, test_frac: float = 0.2):
     df = df.sort_values("month")

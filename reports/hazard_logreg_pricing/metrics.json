@@ -1,0 +1,25 @@
+{
+  "cutoff_month": "2024-10-01",
+  "n_train": 1122,
+  "n_test": 449,
+  "event_rate_test": 0.22717149220489977,
+  "roc_auc": 0.5237893428264678,
+  "avg_precision": 0.2391191357124634,
+  "brier": 0.3640320279798302,
+  "features": [
+    "is_subscribed",
+    "usage_count",
+    "usage_duration_secs",
+    "error_count",
+    "is_beta_feature",
+    "usage_events",
+    "ticket_count",
+    "resolution_time_hours",
+    "first_response_time_minutes",
+    "satisfaction_score",
+    "escalation_flag",
+    "tenure_months",
+    "price",
+    "log_price"
+  ]
+}

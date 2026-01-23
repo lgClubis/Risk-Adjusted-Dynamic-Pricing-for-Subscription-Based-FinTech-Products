@@ -1,5 +1,6 @@
 from __future__ import annotations
 import pandas as pd
+import numpy as np
 
 IN_PATH = "data/processed/customer_month.parquet"
 OUT_PATH = "data/processed/hazard_dataset.parquet"
@@ -24,6 +25,23 @@ def main():
         (df["cum_churn_prior"] == 0) &
         (df["tenure_months"] >= 12)
     ].copy()
+
+    # --- Synthetic price lever (transparent proxy for pricing simulation)
+    # Goal: create a plausible monthly price level per account-month, WITHOUT using the target.
+    # You can later replace this with real pricing if available in subscriptions/billing tables.
+
+    # Base price tier by tenure (proxy: more mature customers are on higher plans)
+    base_price = 20.0 + 0.5 * at_risk["tenure_months"].clip(0, 60)
+
+    # Usage-based component (proxy: higher usage -> higher willingness-to-pay / premium features)
+    usage_component = 0.0005 * at_risk.get("usage_duration_secs", 0).fillna(0)
+    ticket_penalty = 0.5 * at_risk.get("ticket_count", 0).fillna(0)  # support friction can reduce willingness-to-pay
+
+    at_risk["price"] = (base_price + usage_component - ticket_penalty).clip(lower=5.0)
+    at_risk["log_price"] = (at_risk["price"]).apply(lambda x: float(pd.Series([x]).apply("log")[0]))  # stable log
+
+
+
 
     #Target: churn happens in THIS month
     at_risk["y_churn"] = at_risk["churn_in_month"].astype(int)
