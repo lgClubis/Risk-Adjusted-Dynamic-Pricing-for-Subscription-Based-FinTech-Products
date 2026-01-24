@@ -1,0 +1,106 @@
+from __future__ import annotations
+
+from pathlib import Path
+import json
+import pandas as pd
+import numpy as np
+import joblib
+
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss
+
+DATA_PATH = "data/processed/hazard_dataset.parquet"
+REPORT_DIR = Path("reports/hazard_logreg_pricing")
+
+
+def time_split(df: pd.DataFrame, test_frac: float = 0.2):
+    df = df.sort_values("month")
+    months = df["month"].drop_duplicates().sort_values()
+    cut_idx = int((1 - test_frac) * len(months))
+    cut_month = months.iloc[cut_idx]
+    train = df[df["month"] < cut_month].copy()
+    test = df[df["month"] >= cut_month].copy()
+    return train, test, cut_month
+
+
+def main():
+
+    df = pd.read_parquet(DATA_PATH)
+    df["month"] = pd.to_datetime(df["month"])
+
+    target = "y_churn"
+
+    #Features: exclude identifiers & leakage
+    exclude = {"account_id", "month", "subscription_id", "churn_in_month", target}
+    feature_cols = [c for c in df.columns if c not in exclude]
+
+    #Ensure pricing lever is present
+    if "log_price" not in feature_cols:
+        raise ValueError("Expected 'log_price' in feature_cols for pricing-augmented hazard model.")
+
+    #Train/test time split
+    train_df, test_df, cut_month = time_split(df, test_frac=0.2)
+
+    X_train, y_train = train_df[feature_cols], train_df[target].astype(int)
+    X_test, y_test = test_df[feature_cols], test_df[target].astype(int)
+
+    model = Pipeline(steps=[
+        ("scaler", StandardScaler()),
+        ("clf", LogisticRegression(max_iter=3000, class_weight="balanced"))
+    ])
+
+    model.fit(X_train, y_train)
+    p = model.predict_proba(X_test)[:, 1]
+
+    auc = roc_auc_score(y_test, p) if y_test.nunique() > 1 else float("nan")
+    ap = average_precision_score(y_test, p)
+    brier = brier_score_loss(y_test, p)
+
+    #Deciles
+    out = test_df[["account_id", "month"]].copy()
+    out["p_hazard"] = p
+    out["y"] = y_test.values
+    #rank(method="first") makes qcut more stable when many equal probs exist
+    out["decile"] = pd.qcut(out["p_hazard"].rank(method="first"), 10, labels=False, duplicates="drop")
+
+    dec = out.groupby("decile").agg(
+        n=("y", "size"),
+        avg_pred=("p_hazard", "mean"),
+        actual_rate=("y", "mean"),
+    ).reset_index()
+
+    #Coefficients 
+    clf = model.named_steps["clf"]
+    coef = pd.DataFrame({"feature": feature_cols, "coef": clf.coef_.ravel()})
+    coef["abs_coef"] = coef["coef"].abs()
+    coef = coef.sort_values("abs_coef", ascending=False)
+
+    metrics = {
+        "cutoff_month": str(pd.Timestamp(cut_month).date()),
+        "n_train": int(len(train_df)),
+        "n_test": int(len(test_df)),
+        "event_rate_test": float(y_test.mean()),
+        "roc_auc": float(auc) if auc == auc else None,
+        "avg_precision": float(ap),
+        "brier": float(brier),
+    }
+
+    joblib.dump(model, REPORT_DIR / "model.joblib")
+    (REPORT_DIR / "feature_columns.json").write_text(json.dumps(feature_cols, indent=2), encoding="utf-8")
+
+    #Existing report artifacts
+    (REPORT_DIR / "deciles.csv").write_text(dec.to_csv(index=False), encoding="utf-8")
+    (REPORT_DIR / "coefficients.csv").write_text(coef.to_csv(index=False), encoding="utf-8")
+    (REPORT_DIR / "metrics.json").write_text(json.dumps({**metrics, "features": feature_cols}, indent=2), encoding="utf-8")
+
+    print(json.dumps({**metrics, "n_features": len(feature_cols)}, indent=2))
+    print("\nDeciles:\n", dec.head(10))
+    print(f"\nSaved to: {REPORT_DIR}")
+    print(f"Model artifact: {REPORT_DIR / 'model.joblib'}")
+    print(f"Feature columns: {REPORT_DIR / 'feature_columns.json'}")
+
+
+if __name__ == "__main__":
+    main()

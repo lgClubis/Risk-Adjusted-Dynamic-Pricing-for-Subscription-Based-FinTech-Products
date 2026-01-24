@@ -1,0 +1,16 @@
+[
+  "is_subscribed",
+  "usage_count",
+  "usage_duration_secs",
+  "error_count",
+  "is_beta_feature",
+  "usage_events",
+  "ticket_count",
+  "resolution_time_hours",
+  "first_response_time_minutes",
+  "satisfaction_score",
+  "escalation_flag",
+  "tenure_months",
+  "price",
+  "log_price"
+]
