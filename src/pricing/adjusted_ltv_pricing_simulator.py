@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from  src.pricing.risk_adjusted_ltv_optimizer import ltv_mean_std_from_hazards
+from src.pricing.calibration import apply_logit_shift
 
 
 def build_rows_over_horizon(base_profile: dict, price: float, horizon_months: int) -> pd.DataFrame:
@@ -14,13 +15,15 @@ def build_rows_over_horizon(base_profile: dict, price: float, horizon_months: in
         rows.append(row)
     return pd.DataFrame(rows)
 
-def predict_hazards(model, feature_columns, base_profile: dict, price: float, horizon_months: int) -> np.ndarray:
+def predict_hazards_log(model, feature_columns, base_profile: dict, price: float, horizon_months: int, logit_shift: float = 0.0) -> np.ndarray:
     X = build_rows_over_horizon(base_profile, price, horizon_months)
     missing = [c for c in feature_columns if c not in X.columns]
     if missing:
         raise ValueError(f"Missing required features: {missing}")
     X = X.loc[:, feature_columns]
     hazards = model.predict_proba(X)[:, 1].astype(float)
+    if logit_shift != 0.0:
+        hazards = apply_logit_shift(hazards, logit_shift)
     return np.clip(hazards, 1e-6, 1 - 1e-6)
 
 def survival_from_hazards(hazards: np.ndarray) -> np.ndarray:
@@ -77,12 +80,13 @@ def simulate_price_grid(
     variable_cost_rate: float = 0.15,
     monthly_discount_rate: float = 0.01,
     risk_aversion: float = 0.25,  #lambda
+    logit_shift: float = 0.0,
 ) -> pd.DataFrame:
     rows = []
     for p in price_grid:
         p = float(p)
 
-        hazards = predict_hazards(model, feature_columns, base_profile, price=p, horizon_months=horizon_months)
+        hazards = predict_hazards_log(model, feature_columns, base_profile, price=p, horizon_months=horizon_months, logit_shift=logit_shift)
         S = survival_from_hazards(hazards)
 
         #mean/std LTV from distribution
