@@ -7,13 +7,21 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from src.pricing.ltv_pricing_simulator import (
+from src.pricing.ltv_pricing_simulator import ( #was used prior
     predict_hazards,
     survival_from_hazards,
     expected_remaining_lifetime_months,
     expected_ltv,
     simulate_price_grid,
     argmax_price
+)
+from src.pricing.risk_adjusted_ltv_optimizer import (
+    churn_pmf_from_hazards,
+    discounted_cashflow_given_T,
+    ltv_mean_std_from_hazards,
+    simulate_price_grid_risk,
+    argmax_row
+
 )
 
 DATA_PATH = "data/processed/hazard_dataset.parquet"
@@ -44,8 +52,54 @@ def main():
     print("E[remaining months] =", elt)
     print("LTV(price=50) =", ltv)
 
+    out_dir = Path("reports/adjusted_p_simulator_one_profile")
     price_grid = np.arange(20, 121, 2)   #reasonable grid
-    grid_df = simulate_price_grid(
+    lambdas = [0.0, 0.1, 0.25, 0.5, 1.0, 2.0]
+    summary = []
+
+    for lam in lambdas:
+        grid_df = simulate_price_grid_risk(
+            model=model,
+            feature_columns=feature_cols,
+            base_profile=row,
+            price_grid=price_grid,
+            horizon_months=48,
+            fixed_cost=5.0,
+            variable_cost_rate=0.15,
+            monthly_discount_rate=0.01,
+            risk_aversion=lam,
+        )
+        best_mean = argmax_row(grid_df, col="mean_ltv")
+        best_ra = argmax_row(grid_df, col="risk_adj_ltv")
+        summary.append({
+            "lambda": lam,
+            "best_mean_price": best_mean["price"],
+            "best_ra_price": best_ra["price"],
+            "best_ra_value": best_ra["risk_adj_ltv"],
+            "best_ra_std": best_ra["std_ltv"],
+            "best_ra_mean": best_ra["mean_ltv"],
+        })
+
+    summary_df = pd.DataFrame(summary)
+    print("\nLambda sweep:\n", summary_df)
+    summary_df.to_csv(out_dir / "lambda_sweep.csv", index=False)
+
+    print("\nBest price by mean LTV:", best_mean)
+
+    lam_for_plot = 0.25
+    grid_df = simulate_price_grid_risk(
+        model=model,
+        feature_columns=feature_cols,
+        base_profile=row,
+        price_grid=price_grid,
+        horizon_months=48,
+        fixed_cost=5.0,
+        variable_cost_rate=0.15,
+        monthly_discount_rate=0.01,
+        risk_aversion=lam_for_plot,
+    )
+
+    """grid_df = simulate_price_grid(       #old not risk adjusted
         model=model,
         feature_columns=feature_cols,
         base_profile=row,
@@ -58,14 +112,26 @@ def main():
 
     best = argmax_price(grid_df, col="LTV")
     print("\nBest price by mean LTV:", best)
+    """
 
     #Save artifacts
-    out_dir = Path("reports/pricing_simulator_one_profile")
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = Path("reports/adjusted_p_simulator_one_profile")
 
     grid_df.to_csv(out_dir / "ltv_vs_price.csv", index=False)
 
-    #Plot
+    plt.figure()
+    plt.plot(grid_df["price"], grid_df["mean_ltv"], label="mean_ltv")
+    plt.plot(grid_df["price"], grid_df["risk_adj_ltv"], label=f"risk_adj_ltv (λ={lam_for_plot})")
+    plt.xlabel("Price")
+    plt.ylabel("LTV")
+    plt.title("Mean vs Risk-Adjusted LTV (one profile)")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(out_dir / "ltv_vs_price.png", dpi=160)
+    plt.close()
+
+    """
+    #Old plot
     plt.figure()
     plt.plot(grid_df["price"], grid_df["LTV"])
     plt.xlabel("Price")
@@ -73,7 +139,7 @@ def main():
     plt.title("LTV vs Price (one profile)")
     plt.tight_layout()
     plt.savefig(out_dir / "ltv_vs_price.png", dpi=160)
-    plt.close()
+    plt.close()"""
 
     print(f"\nSaved: {out_dir / 'ltv_vs_price.csv'}")
     print(f"Saved: {out_dir / 'ltv_vs_price.png'}")
