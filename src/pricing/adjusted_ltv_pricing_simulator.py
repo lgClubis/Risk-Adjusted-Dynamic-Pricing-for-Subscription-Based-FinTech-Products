@@ -116,6 +116,6 @@ def simulate_price_grid(
     return pd.DataFrame(rows).sort_values("price").reset_index(drop=True)
 
 
-def argmax_price(df: pd.DataFrame, col: str = "LTV") -> dict:
+def argmax_price(df: pd.DataFrame, col: str = "mean_LTV") -> dict:
     i = int(df[col].idxmax())
     return df.loc[i].to_dict()

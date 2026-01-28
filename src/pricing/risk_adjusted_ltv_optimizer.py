@@ -94,6 +94,6 @@ def simulate_price_grid_risk(
 
     return pd.DataFrame(rows).sort_values("price").reset_index(drop=True)
 
-def argmax_row(df: pd.DataFrame, col: str):
+def argmax_price(df: pd.DataFrame, col: str = "mean_ltv") -> dict:
     i = int(df[col].idxmax())
     return df.loc[i].to_dict()
